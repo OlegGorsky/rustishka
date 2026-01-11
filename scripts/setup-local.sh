@@ -113,12 +113,65 @@ echo "--- Beads (AI память) ---"
 check_and_install "beads" "command -v bd" "cargo install beads"
 
 echo ""
+# --- fnm + Node.js + pnpm ---
+echo "--- Node.js (fnm + pnpm) ---"
+
+# fnm
+if command -v fnm &>/dev/null; then
+    log_skip "fnm $(fnm --version)"
+    SKIPPED+=("fnm")
+else
+    log_install "fnm"
+    curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+    export PATH="$HOME/.local/share/fnm:$PATH"
+    eval "$(fnm env)"
+    log_ok "fnm установлен"
+    INSTALLED+=("fnm")
+fi
+
+# Убедимся что fnm в PATH
+export PATH="$HOME/.local/share/fnm:$PATH"
+if command -v fnm &>/dev/null; then
+    eval "$(fnm env)"
+fi
+
+# Node.js LTS
+if command -v node &>/dev/null; then
+    CURRENT_NODE=$(node --version)
+    log_skip "Node.js $CURRENT_NODE"
+    SKIPPED+=("node")
+    # Проверяем обновления
+    LATEST_LTS=$(fnm list-remote | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | tail -1)
+    if [ "$CURRENT_NODE" != "$LATEST_LTS" ]; then
+        echo -e "${YELLOW}→${NC} Доступно обновление: $LATEST_LTS"
+    fi
+else
+    log_install "Node.js LTS"
+    fnm install --lts
+    fnm default lts-latest
+    fnm use lts-latest
+    log_ok "Node.js $(node --version) установлен"
+    INSTALLED+=("node")
+fi
+
+# pnpm
+if command -v pnpm &>/dev/null; then
+    log_skip "pnpm $(pnpm --version)"
+    SKIPPED+=("pnpm")
+else
+    log_install "pnpm"
+    npm install -g pnpm
+    log_ok "pnpm установлен"
+    INSTALLED+=("pnpm")
+fi
+
+echo ""
 # --- spec-kit ---
 echo "--- spec-kit (проектирование) ---"
-if command -v npx &>/dev/null; then
-    check_and_install "spec-kit" "npx spec-kit --version" "npm install -g @anthropic/spec-kit"
+if command -v pnpm &>/dev/null; then
+    check_and_install "spec-kit" "pnpm exec spec-kit --version 2>/dev/null || npx spec-kit --version 2>/dev/null" "pnpm add -g @anthropic/spec-kit"
 else
-    log_error "npm не установлен, пропускаю spec-kit"
+    log_error "pnpm не установлен, пропускаю spec-kit"
     FAILED+=("spec-kit")
 fi
 
@@ -147,6 +200,7 @@ add_to_rc 'alias grep="rg"'
 add_to_rc 'eval "$(zoxide init bash)"'
 add_to_rc 'eval "$(starship init bash)"'
 add_to_rc 'export PATH="$HOME/.cargo/bin:$PATH"'
+add_to_rc 'eval "$(fnm env)"'
 
 log_ok "Shell настроен"
 
