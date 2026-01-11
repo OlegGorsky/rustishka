@@ -1,0 +1,181 @@
+#!/bin/bash
+# Установка локальных инструментов
+
+set -e
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+log_ok() { echo -e "${GREEN}✓${NC} $1"; }
+log_skip() { echo -e "${YELLOW}→${NC} $1 (уже установлен)"; }
+log_install() { echo -e "${YELLOW}⬇${NC} Устанавливаю $1..."; }
+log_error() { echo -e "${RED}✗${NC} $1"; }
+
+INSTALLED=()
+SKIPPED=()
+FAILED=()
+
+check_and_install() {
+    local name=$1
+    local check_cmd=$2
+    local install_cmd=$3
+
+    if eval "$check_cmd" &>/dev/null; then
+        log_skip "$name"
+        SKIPPED+=("$name")
+    else
+        log_install "$name"
+        if eval "$install_cmd"; then
+            log_ok "$name установлен"
+            INSTALLED+=("$name")
+        else
+            log_error "Не удалось установить $name"
+            FAILED+=("$name")
+        fi
+    fi
+}
+
+echo "=========================================="
+echo "   Установка локального окружения"
+echo "=========================================="
+echo ""
+
+# --- Системные зависимости ---
+echo "--- Системные пакеты ---"
+sudo apt update -qq
+
+check_and_install "curl" "command -v curl" "sudo apt install -y curl"
+check_and_install "git" "command -v git" "sudo apt install -y git"
+check_and_install "build-essential" "dpkg -s build-essential" "sudo apt install -y build-essential"
+check_and_install "pkg-config" "command -v pkg-config" "sudo apt install -y pkg-config"
+check_and_install "libssl-dev" "dpkg -s libssl-dev" "sudo apt install -y libssl-dev"
+check_and_install "gnupg" "command -v gpg" "sudo apt install -y gnupg"
+check_and_install "pass" "command -v pass" "sudo apt install -y pass"
+check_and_install "btop" "command -v btop" "sudo apt install -y btop"
+check_and_install "jq" "command -v jq" "sudo apt install -y jq"
+check_and_install "yq" "command -v yq" "sudo apt install -y yq"
+
+echo ""
+# --- Rust ---
+echo "--- Rust ---"
+if command -v rustc &>/dev/null; then
+    log_skip "Rust $(rustc --version | cut -d' ' -f2)"
+    SKIPPED+=("rust")
+else
+    log_install "Rust"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+    log_ok "Rust установлен"
+    INSTALLED+=("rust")
+fi
+
+# Убедимся что cargo в PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
+echo ""
+# --- Rust CLI инструменты ---
+echo "--- Rust CLI инструменты ---"
+
+check_and_install "eza" "command -v eza" "cargo install eza"
+check_and_install "bat" "command -v bat" "cargo install bat"
+check_and_install "fd" "command -v fd" "cargo install fd-find"
+check_and_install "ripgrep" "command -v rg" "cargo install ripgrep"
+check_and_install "zoxide" "command -v zoxide" "cargo install zoxide"
+check_and_install "dust" "command -v dust" "cargo install du-dust"
+check_and_install "delta" "command -v delta" "cargo install git-delta"
+check_and_install "tokei" "command -v tokei" "cargo install tokei"
+check_and_install "hyperfine" "command -v hyperfine" "cargo install hyperfine"
+check_and_install "gitui" "command -v gitui" "cargo install gitui"
+check_and_install "starship" "command -v starship" "cargo install starship"
+check_and_install "xsv" "command -v xsv" "cargo install xsv"
+check_and_install "just" "command -v just" "cargo install just"
+check_and_install "watchexec" "command -v watchexec" "cargo install watchexec-cli"
+
+echo ""
+# --- Cargo расширения ---
+echo "--- Cargo расширения ---"
+
+check_and_install "cargo-audit" "cargo audit --version" "cargo install cargo-audit"
+check_and_install "cargo-tarpaulin" "cargo tarpaulin --version" "cargo install cargo-tarpaulin"
+check_and_install "cargo-watch" "cargo watch --version" "cargo install cargo-watch"
+check_and_install "cargo-edit" "cargo add --version" "cargo install cargo-edit"
+check_and_install "cargo-outdated" "cargo outdated --version" "cargo install cargo-outdated"
+check_and_install "cargo-nextest" "cargo nextest --version" "cargo install cargo-nextest"
+check_and_install "bacon" "command -v bacon" "cargo install bacon"
+check_and_install "sqlx-cli" "command -v sqlx" "cargo install sqlx-cli"
+check_and_install "tokio-console" "command -v tokio-console" "cargo install tokio-console"
+
+echo ""
+# --- Beads ---
+echo "--- Beads (AI память) ---"
+check_and_install "beads" "command -v bd" "cargo install beads"
+
+echo ""
+# --- spec-kit ---
+echo "--- spec-kit (проектирование) ---"
+if command -v npx &>/dev/null; then
+    check_and_install "spec-kit" "npx spec-kit --version" "npm install -g @anthropic/spec-kit"
+else
+    log_error "npm не установлен, пропускаю spec-kit"
+    FAILED+=("spec-kit")
+fi
+
+echo ""
+# --- Настройка shell ---
+echo "--- Настройка shell ---"
+
+SHELL_RC="$HOME/.bashrc"
+if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+    SHELL_RC="$HOME/.zshrc"
+fi
+
+add_to_rc() {
+    if ! grep -q "$1" "$SHELL_RC" 2>/dev/null; then
+        echo "$1" >> "$SHELL_RC"
+        echo "  Добавлено: $1"
+    fi
+}
+
+echo "Добавляю алиасы и инициализацию в $SHELL_RC..."
+
+add_to_rc 'alias ls="eza --icons"'
+add_to_rc 'alias cat="bat"'
+add_to_rc 'alias find="fd"'
+add_to_rc 'alias grep="rg"'
+add_to_rc 'eval "$(zoxide init bash)"'
+add_to_rc 'eval "$(starship init bash)"'
+add_to_rc 'export PATH="$HOME/.cargo/bin:$PATH"'
+
+log_ok "Shell настроен"
+
+echo ""
+echo "=========================================="
+echo "   Результаты установки"
+echo "=========================================="
+
+# Сохраняем отчёт
+REPORT_FILE="$HOME/.stack-installed.txt"
+{
+    echo "# Установленные инструменты"
+    echo "# Дата: $(date)"
+    echo ""
+    echo "## Установлено:"
+    for item in "${INSTALLED[@]}"; do echo "- $item"; done
+    echo ""
+    echo "## Уже было:"
+    for item in "${SKIPPED[@]}"; do echo "- $item"; done
+    echo ""
+    echo "## Ошибки:"
+    for item in "${FAILED[@]}"; do echo "- $item"; done
+} > "$REPORT_FILE"
+
+echo ""
+echo -e "${GREEN}Установлено:${NC} ${#INSTALLED[@]}"
+echo -e "${YELLOW}Пропущено:${NC} ${#SKIPPED[@]}"
+echo -e "${RED}Ошибок:${NC} ${#FAILED[@]}"
+echo ""
+echo "Отчёт сохранён: $REPORT_FILE"
+echo ""
+echo "Перезапусти терминал или выполни: source $SHELL_RC"
