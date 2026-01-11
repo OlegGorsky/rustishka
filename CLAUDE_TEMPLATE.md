@@ -123,19 +123,114 @@ bd list / bd ready / bd add "задача" / bd done <id> / bd show <id> / bd ed
 /speckit.constitution → /speckit.specify → /speckit.plan → /speckit.tasks → /speckit.implement
 ```
 
-## Правила кода
+## Код: стиль и формат
 
-- Ошибки: `Result` + `?`, без `unwrap()`
-- Ошибки: `thiserror`
-- Тесты для новых функций
-- Документация: `///`
+**Именование:**
+- Типы: `PascalCase` — `UserProfile`, `OrderStatus`
+- Функции/переменные: `snake_case` — `get_user`, `order_count`
+- Константы: `SCREAMING_SNAKE` — `MAX_RETRIES`, `DEFAULT_TIMEOUT`
+- Модули: короткие, `snake_case` — `db`, `auth`, `handlers`
 
-## Правила async
+**Структура файлов:**
+```
+// 1. imports (std → external → internal)
+// 2. constants
+// 3. types/structs
+// 4. impl blocks
+// 5. functions
+// 6. tests (#[cfg(test)])
+```
 
-- `Clone` вместо ссылок
-- State в БД/Redis, не в памяти
-- Shared state: `Arc<RwLock<T>>`
+**Форматирование:**
+- `rustfmt` — без исключений
+- Строки ≤100 символов
+- Группировать imports по блокам с пустой строкой
+
+## Код: производительность
+
+**Аллокации:**
+- `&str` вместо `String` где возможно
+- `Cow<'_, str>` для опционального владения
+- `SmallVec` для малых коллекций (≤8 элементов)
+- `Box<[T]>` вместо `Vec<T>` для фиксированных данных
+- Избегать `.clone()` без необходимости
+
+**Итераторы:**
+- `.iter()` вместо `for i in 0..len`
+- Ленивые цепочки: `.filter().map().take()`
+- `.collect::<Vec<_>>()` только в конце
+- `rayon` для CPU-bound параллелизма
+
+**Zero-copy:**
+- `bytes::Bytes` для бинарных данных
+- `serde_json::RawValue` для отложенного парсинга
+- `tokio::io::copy()` для потоков
+
+**Кэширование:**
+- Тяжёлые вычисления → Redis с TTL
+- Компилированные regex: `lazy_static!` или `once_cell`
+- Prepared statements в SQLx (по умолчанию)
+
+## Код: надёжность
+
+**Ошибки:**
+- `Result<T, E>` везде, без `unwrap()` / `expect()` в проде
+- `thiserror` для типизированных ошибок
+- `?` для пробрасывания
+- Логировать ошибки на границе (handler/main)
+
+**Валидация:**
+- На входе в систему (handlers), не глубже
+- `validator` для структур
+- Ранний возврат: `if !valid { return Err(...) }`
+
+**Безопасность:**
+- Никаких `unsafe` без код-ревью
+- SQL только через SQLx параметры (`$1`, `$2`)
+- Санитизация пользовательского ввода
+- Rate limiting на публичных эндпоинтах
+
+**Тесты:**
+- Unit: для бизнес-логики
+- Integration: для API endpoints
+- `#[should_panic]` для проверки паник
+- Моки через traits, не конкретные типы
+
+## Код: async
+
+**Правила:**
+- `Clone` вместо ссылок между тасками
+- State в БД/Redis, НЕ в памяти процесса
+- `Arc<T>` для shared immutable
+- `Arc<RwLock<T>>` только если неизбежно
 - Каналы: `tokio::sync::mpsc`
+
+**Антипаттерны:**
+- `block_on` внутри async — deadlock
+- `Mutex` из std в async — использовать `tokio::sync::Mutex`
+- Долгие CPU операции — выносить в `spawn_blocking`
+
+## Код: структура модулей
+
+```
+src/
+├── main.rs          # точка входа, минимум логики
+├── lib.rs           # pub mod declarations
+├── config.rs        # конфигурация из ENV
+├── error.rs         # типы ошибок (thiserror)
+├── routes/          # HTTP handlers
+│   ├── mod.rs
+│   └── users.rs
+├── models/          # структуры данных
+├── db/              # слой доступа к БД
+├── services/        # бизнес-логика
+└── utils/           # хелперы
+```
+
+**Правила модулей:**
+- Один pub тип = один файл (для крупных типов)
+- `mod.rs` только для re-exports
+- Приватное по умолчанию, `pub` осознанно
 
 ## Redis vs PostgreSQL
 
