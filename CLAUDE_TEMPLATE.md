@@ -232,6 +232,61 @@ src/
 - `mod.rs` только для re-exports
 - Приватное по умолчанию, `pub` осознанно
 
+## Код: размеры и декомпозиция
+
+**Лимиты строк:**
+- Файл: ≤300 строк — если больше, разбивать
+- Функция: ≤50 строк — если больше, выделять хелперы
+- Impl block: ≤200 строк — разделять по смыслу (CRUD отдельно, бизнес-логика отдельно)
+
+**Когда создавать новый файл:**
+- Новая сущность (User, Order, Payment) → `models/user.rs`
+- Новый handler group → `routes/users.rs`, `routes/orders.rs`
+- Утилита используется в 2+ местах → `utils/`
+- Сложная бизнес-логика → `services/billing.rs`
+
+**Когда создавать новый модуль (папку):**
+- 3+ связанных файла → выносить в подпапку
+- Пример: `routes/admin/mod.rs`, `routes/admin/users.rs`, `routes/admin/settings.rs`
+
+**Декомпозиция функций:**
+```rust
+// Плохо: 100+ строк в одной функции
+async fn create_order(/*...*/) { /* всё здесь */ }
+
+// Хорошо: разбито по шагам
+async fn create_order(/*...*/) -> Result<Order> {
+    let user = validate_user(&input).await?;
+    let items = validate_items(&input.items).await?;
+    let order = build_order(user, items)?;
+    let saved = save_order(&db, order).await?;
+    notify_user(&saved).await?;
+    Ok(saved)
+}
+```
+
+**Признаки что пора разбивать:**
+- Скроллить чтобы понять что делает файл
+- Функция не помещается на экран
+- `impl` блок имеет 10+ методов
+- Трудно найти нужный код
+- Один файл редактируется в каждом PR
+
+**Структура большого модуля:**
+```
+services/
+├── mod.rs              # pub use, общие трейты
+├── billing/
+│   ├── mod.rs          # pub use
+│   ├── invoice.rs      # создание счетов
+│   ├── payment.rs      # обработка платежей
+│   └── refund.rs       # возвраты
+└── notification/
+    ├── mod.rs
+    ├── email.rs
+    └── telegram.rs
+```
+
 ## Redis vs PostgreSQL
 
 **Redis:** сессии, кэш, очереди, rate limiting
