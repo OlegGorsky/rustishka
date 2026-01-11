@@ -37,14 +37,8 @@ curl -sSL https://raw.githubusercontent.com/OlegGorsky/rustishka/main/scripts/se
 **AI-инструменты:**
 - `beads` (bd) - память между сессиями
 
-### На сервере
+### На сервере (Production VPS)
 
-**Git-сервер:**
-- Forgejo (Git + Registry)
-- Rustic (бэкапы)
-- Netdata, Vector
-
-**Production VPS:**
 - PostgreSQL 16, Redis 7
 - Caddy (reverse proxy + HTTPS)
 - Garage (S3), Directus (CMS)
