@@ -11,10 +11,14 @@ NC='\033[0m'
 log_ok() { echo -e "${GREEN}✓${NC} $1"; }
 log_skip() { echo -e "${YELLOW}→${NC} $1 (уже установлен)"; }
 log_install() { echo -e "${YELLOW}⬇${NC} Устанавливаю $1..."; }
+log_update() { echo -e "${CYAN}↑${NC} Обновляю $1..."; }
 log_error() { echo -e "${RED}✗${NC} $1"; }
+
+CYAN='\033[0;36m'
 
 INSTALLED=()
 SKIPPED=()
+UPDATED=()
 FAILED=()
 
 check_and_install() {
@@ -28,6 +32,32 @@ check_and_install() {
     else
         log_install "$name"
         if eval "$install_cmd"; then
+            log_ok "$name установлен"
+            INSTALLED+=("$name")
+        else
+            log_error "Не удалось установить $name"
+            FAILED+=("$name")
+        fi
+    fi
+}
+
+# Установка или обновление cargo пакета
+cargo_install_or_update() {
+    local name=$1
+    local bin_name=${2:-$1}
+
+    if command -v "$bin_name" &>/dev/null; then
+        log_update "$name"
+        if cargo install "$name" 2>&1 | grep -q "Replacing"; then
+            log_ok "$name обновлён"
+            UPDATED+=("$name")
+        else
+            log_skip "$name (актуальная версия)"
+            SKIPPED+=("$name")
+        fi
+    else
+        log_install "$name"
+        if cargo install "$name"; then
             log_ok "$name установлен"
             INSTALLED+=("$name")
         else
@@ -78,39 +108,39 @@ echo ""
 # --- Rust CLI инструменты ---
 echo "--- Rust CLI инструменты ---"
 
-check_and_install "eza" "command -v eza" "cargo install eza"
-check_and_install "bat" "command -v bat" "cargo install bat"
-check_and_install "fd" "command -v fd" "cargo install fd-find"
-check_and_install "ripgrep" "command -v rg" "cargo install ripgrep"
-check_and_install "zoxide" "command -v zoxide" "cargo install zoxide"
-check_and_install "dust" "command -v dust" "cargo install du-dust"
-check_and_install "delta" "command -v delta" "cargo install git-delta"
-check_and_install "tokei" "command -v tokei" "cargo install tokei"
-check_and_install "hyperfine" "command -v hyperfine" "cargo install hyperfine"
-check_and_install "gitui" "command -v gitui" "cargo install gitui"
-check_and_install "starship" "command -v starship" "cargo install starship"
-check_and_install "xsv" "command -v xsv" "cargo install xsv"
-check_and_install "just" "command -v just" "cargo install just"
-check_and_install "watchexec" "command -v watchexec" "cargo install watchexec-cli"
+cargo_install_or_update "eza" "eza"
+cargo_install_or_update "bat" "bat"
+cargo_install_or_update "fd-find" "fd"
+cargo_install_or_update "ripgrep" "rg"
+cargo_install_or_update "zoxide" "zoxide"
+cargo_install_or_update "du-dust" "dust"
+cargo_install_or_update "git-delta" "delta"
+cargo_install_or_update "tokei" "tokei"
+cargo_install_or_update "hyperfine" "hyperfine"
+cargo_install_or_update "gitui" "gitui"
+cargo_install_or_update "starship" "starship"
+cargo_install_or_update "xsv" "xsv"
+cargo_install_or_update "just" "just"
+cargo_install_or_update "watchexec-cli" "watchexec"
 
 echo ""
 # --- Cargo расширения ---
 echo "--- Cargo расширения ---"
 
-check_and_install "cargo-audit" "cargo audit --version" "cargo install cargo-audit"
-check_and_install "cargo-tarpaulin" "cargo tarpaulin --version" "cargo install cargo-tarpaulin"
-check_and_install "cargo-watch" "cargo watch --version" "cargo install cargo-watch"
-check_and_install "cargo-edit" "cargo add --version" "cargo install cargo-edit"
-check_and_install "cargo-outdated" "cargo outdated --version" "cargo install cargo-outdated"
-check_and_install "cargo-nextest" "cargo nextest --version" "cargo install cargo-nextest"
-check_and_install "bacon" "command -v bacon" "cargo install bacon"
-check_and_install "sqlx-cli" "command -v sqlx" "cargo install sqlx-cli"
-check_and_install "tokio-console" "command -v tokio-console" "cargo install tokio-console"
+cargo_install_or_update "cargo-audit" "cargo-audit"
+cargo_install_or_update "cargo-tarpaulin" "cargo-tarpaulin"
+cargo_install_or_update "cargo-watch" "cargo-watch"
+cargo_install_or_update "cargo-edit" "cargo-add"
+cargo_install_or_update "cargo-outdated" "cargo-outdated"
+cargo_install_or_update "cargo-nextest" "cargo-nextest"
+cargo_install_or_update "bacon" "bacon"
+cargo_install_or_update "sqlx-cli" "sqlx"
+cargo_install_or_update "tokio-console" "tokio-console"
 
 echo ""
 # --- Beads ---
 echo "--- Beads (AI память) ---"
-check_and_install "beads" "command -v bd" "cargo install beads"
+cargo_install_or_update "beads" "bd"
 
 echo ""
 # --- fnm + Node.js + pnpm ---
@@ -156,8 +186,17 @@ fi
 
 # pnpm
 if command -v pnpm &>/dev/null; then
-    log_skip "pnpm $(pnpm --version)"
-    SKIPPED+=("pnpm")
+    log_update "pnpm"
+    CURRENT_PNPM=$(pnpm --version)
+    npm install -g pnpm
+    NEW_PNPM=$(pnpm --version)
+    if [ "$CURRENT_PNPM" != "$NEW_PNPM" ]; then
+        log_ok "pnpm обновлён: $CURRENT_PNPM → $NEW_PNPM"
+        UPDATED+=("pnpm")
+    else
+        log_skip "pnpm $CURRENT_PNPM (актуальная версия)"
+        SKIPPED+=("pnpm")
+    fi
 else
     log_install "pnpm"
     npm install -g pnpm
@@ -218,7 +257,10 @@ REPORT_FILE="$HOME/.stack-installed.txt"
     echo "## Установлено:"
     for item in "${INSTALLED[@]}"; do echo "- $item"; done
     echo ""
-    echo "## Уже было:"
+    echo "## Обновлено:"
+    for item in "${UPDATED[@]}"; do echo "- $item"; done
+    echo ""
+    echo "## Актуальные:"
     for item in "${SKIPPED[@]}"; do echo "- $item"; done
     echo ""
     echo "## Ошибки:"
@@ -227,7 +269,8 @@ REPORT_FILE="$HOME/.stack-installed.txt"
 
 echo ""
 echo -e "${GREEN}Установлено:${NC} ${#INSTALLED[@]}"
-echo -e "${YELLOW}Пропущено:${NC} ${#SKIPPED[@]}"
+echo -e "${CYAN}Обновлено:${NC} ${#UPDATED[@]}"
+echo -e "${YELLOW}Актуальные:${NC} ${#SKIPPED[@]}"
 echo -e "${RED}Ошибок:${NC} ${#FAILED[@]}"
 echo ""
 echo "Отчёт сохранён: $REPORT_FILE"
