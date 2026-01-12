@@ -74,7 +74,11 @@ echo ""
 
 # --- Определение ОС и пакетного менеджера ---
 detect_os() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Сначала проверяем NixOS (до apt, т.к. nix может быть установлен поверх других)
+    if [ -f /etc/NIXOS ] || command -v nix-env &>/dev/null; then
+        OS="nixos"
+        PKG_MGR="nix"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
         OS="macos"
         PKG_MGR="brew"
     elif command -v apt &>/dev/null; then
@@ -86,9 +90,6 @@ detect_os() {
     elif command -v pacman &>/dev/null; then
         OS="arch"
         PKG_MGR="pacman"
-    elif command -v nix-env &>/dev/null; then
-        OS="nixos"
-        PKG_MGR="nix"
     else
         OS="unknown"
         PKG_MGR="unknown"
