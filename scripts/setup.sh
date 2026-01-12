@@ -57,18 +57,33 @@ echo -e "${GREEN}║         Установка завершена!           �
 echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
 echo ""
 
-echo "Созданные файлы:"
+echo -e "${CYAN}Созданные файлы:${NC}"
 echo ""
 
 if [ -f "$HOME/.stack-installed.txt" ]; then
-    echo "  ~/.stack-installed.txt - список локальных инструментов"
+    echo "  📋 ~/.stack-installed.txt - список локальных инструментов"
 fi
 
-CREDS_FILE=$(ls "$HOME"/.server-credentials-*.txt 2>/dev/null | head -1 || true)
-if [ -n "$CREDS_FILE" ]; then
-    echo "  $CREDS_FILE - доступы к серверу"
+# Ищем файлы документации сервера
+SERVER_DOC=$(ls "$HOME"/.server-*.md 2>/dev/null | head -1 || true)
+if [ -n "$SERVER_DOC" ]; then
+    echo "  📄 $SERVER_DOC - документация сервера"
+fi
+
+ENV_FILE=$(ls "$HOME"/.env-* 2>/dev/null | head -1 || true)
+if [ -n "$ENV_FILE" ]; then
+    echo "  🔐 $ENV_FILE - переменные окружения"
+fi
+
+if [ -f "$HOME/.nix-pkg-cache.txt" ]; then
+    echo "  📦 ~/.nix-pkg-cache.txt - кэш пакетов NixOS"
 fi
 
 echo ""
-echo -e "${YELLOW}Перезапусти терминал для применения алиасов!${NC}"
+echo -e "${YELLOW}⚠ Перезапусти терминал для применения алиасов!${NC}"
+echo ""
+echo -e "${CYAN}Полезные команды:${NC}"
+echo "  specify init .     - инициализировать spec-driven проект"
+echo "  just ci            - запустить CI pipeline"
+echo "  bacon clippy       - watch-режим для clippy"
 echo ""
