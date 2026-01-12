@@ -1,5 +1,6 @@
 #!/bin/bash
 # Установка локальных инструментов (кроссплатформенный)
+# v2: с интеллектуальным поиском пакетов
 
 set -e
 
@@ -15,14 +16,18 @@ log_install() { echo -e "${YELLOW}⬇${NC} Устанавливаю $1..."; }
 log_update() { echo -e "${CYAN}↑${NC} Обновляю $1..."; }
 log_info() { echo -e "${CYAN}ℹ${NC} $1"; }
 log_error() { echo -e "${RED}✗${NC} $1"; }
+log_search() { echo -e "${CYAN}🔍${NC} Ищу альтернативу для $1..."; }
 
 INSTALLED=()
 SKIPPED=()
 UPDATED=()
 FAILED=()
 
+# Файл кэша найденных маппингов
+CACHE_FILE="$HOME/.nix-pkg-cache.txt"
+
 echo "=========================================="
-echo "   Установка локального окружения"
+echo "   Установка локального окружения v2"
 echo "=========================================="
 echo ""
 
@@ -54,53 +59,169 @@ echo "ОС: $OS, Пакетный менеджер: $PKG_MGR"
 echo ""
 
 # ===========================================
-# NixOS: отдельная логика
+# NixOS: интеллектуальная установка
 # ===========================================
 if [ "$PKG_MGR" = "nix" ]; then
     echo "--- NixOS: установка через nix profile ---"
     echo ""
 
-    # Список пакетов для установки через nix
-    NIX_PACKAGES=(
-        "eza"
-        "bat"
-        "fd"
-        "ripgrep"
-        "zoxide"
-        "dust"
-        "delta"
-        "tokei"
-        "hyperfine"
-        "gitui"
-        "starship"
-        "xsv"
-        "just"
-        "watchexec"
-        "cargo-audit"
-        "cargo-watch"
-        "cargo-nextest"
-        "bacon"
-        "sqlx-cli"
-        "fnm"
-        "jq"
-        "pass"
-        "gnupg"
-    )
+    # Проверить кэш на наличие маппинга
+    get_cached_name() {
+        local pkg="$1"
+        if [ -f "$CACHE_FILE" ]; then
+            grep "^$pkg=" "$CACHE_FILE" 2>/dev/null | cut -d'=' -f2
+        fi
+    }
 
-    for pkg in "${NIX_PACKAGES[@]}"; do
-        if command -v "$pkg" &>/dev/null || nix profile list 2>/dev/null | grep -q "$pkg"; then
-            log_skip "$pkg"
+    # Сохранить маппинг в кэш
+    save_to_cache() {
+        local original="$1"
+        local actual="$2"
+        # Удалить старую запись если есть
+        if [ -f "$CACHE_FILE" ]; then
+            grep -v "^$original=" "$CACHE_FILE" > "$CACHE_FILE.tmp" 2>/dev/null || true
+            mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+        fi
+        echo "$original=$actual" >> "$CACHE_FILE"
+    }
+
+    # Поиск пакета в nixpkgs (только ТОЧНОЕ совпадение)
+    find_nix_package() {
+        local pkg="$1"
+
+        local results=$(nix search nixpkgs "$pkg" --json 2>/dev/null)
+
+        if [ -z "$results" ] || [ "$results" = "{}" ]; then
+            return 1
+        fi
+
+        # Ищем ТОЛЬКО точное совпадение имени пакета
+        local found=$(echo "$results" | jq -r --arg pkg "$pkg" '
+            to_entries |
+            map(select(.key | split(".") | last | ascii_downcase == ($pkg | ascii_downcase))) |
+            .[0].key // empty
+        ' | sed 's/legacyPackages\.x86_64-linux\.//')
+
+        if [ -n "$found" ]; then
+            echo "$found"
+            return 0
+        fi
+
+        # Если точного совпадения нет — не угадываем, возвращаем ошибку
+        return 1
+    }
+
+    # Умная установка пакета
+    smart_nix_install() {
+        local pkg="$1"
+        local bin_name="${2:-$pkg}"  # имя бинарника для проверки
+
+        # Проверяем, установлен ли уже
+        if command -v "$bin_name" &>/dev/null; then
+            log_skip "$pkg (бинарник $bin_name найден)"
             SKIPPED+=("$pkg")
-        else
-            log_install "$pkg"
-            if nix profile install "nixpkgs#$pkg" 2>/dev/null; then
-                log_ok "$pkg установлен"
-                INSTALLED+=("$pkg")
-            else
-                log_error "Не удалось установить $pkg"
-                FAILED+=("$pkg")
+            return 0
+        fi
+
+        # Проверяем в nix profile (точное совпадение имени пакета)
+        # Убираем ANSI коды и ищем точное имя
+        if nix profile list 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -qE "^Name:\s+${pkg}$"; then
+            log_skip "$pkg (в nix profile)"
+            SKIPPED+=("$pkg")
+            return 0
+        fi
+
+        # Проверяем кэш
+        local cached=$(get_cached_name "$pkg")
+        if [ -n "$cached" ] && [ "$cached" != "$pkg" ]; then
+            log_info "Использую кэшированное имя: $pkg → $cached"
+            pkg="$cached"
+        fi
+
+        log_install "$pkg"
+
+        # Пробуем установить напрямую
+        if nix profile install "nixpkgs#$pkg" 2>/dev/null; then
+            log_ok "$pkg установлен"
+            INSTALLED+=("$pkg")
+            return 0
+        fi
+
+        # Не удалось — ищем альтернативу
+        log_search "$pkg"
+        local found=$(find_nix_package "$pkg")
+
+        if [ -n "$found" ] && [ "$found" != "$pkg" ]; then
+            log_info "Найдена альтернатива: $pkg → $found"
+            if nix profile install "nixpkgs#$found" 2>/dev/null; then
+                log_ok "$found установлен (вместо $pkg)"
+                save_to_cache "$pkg" "$found"
+                INSTALLED+=("$found")
+                return 0
             fi
         fi
+
+        # Последний шанс — cargo install
+        log_info "Пробую установить через cargo..."
+        # Маппинг имён пакетов для cargo
+        local cargo_name="$pkg"
+        case "$pkg" in
+            fd) cargo_name="fd-find" ;;
+            dust) cargo_name="du-dust" ;;
+            delta) cargo_name="git-delta" ;;
+            watchexec) cargo_name="watchexec-cli" ;;
+        esac
+
+        # На NixOS нужен nix-shell с компилятором
+        if [ "$OS" = "nixos" ]; then
+            if nix-shell -p gcc pkg-config openssl --run "cargo install $cargo_name" 2>/dev/null; then
+                log_ok "$pkg установлен через cargo (nix-shell)"
+                INSTALLED+=("$pkg (cargo)")
+                return 0
+            fi
+        elif command -v cargo &>/dev/null; then
+            if cargo install "$cargo_name" 2>/dev/null; then
+                log_ok "$pkg установлен через cargo"
+                INSTALLED+=("$pkg (cargo)")
+                return 0
+            fi
+        fi
+
+        log_error "Не удалось установить $pkg"
+        FAILED+=("$pkg")
+        return 1
+    }
+
+    # Список пакетов: название -> бинарник (если отличается)
+    declare -A NIX_PACKAGES=(
+        ["eza"]="eza"
+        ["bat"]="bat"
+        ["fd"]="fd"
+        ["ripgrep"]="rg"
+        ["zoxide"]="zoxide"
+        ["dust"]="dust"
+        ["delta"]="delta"
+        ["tokei"]="tokei"
+        ["hyperfine"]="hyperfine"
+        ["gitui"]="gitui"
+        ["starship"]="starship"
+        ["xsv"]="xsv"
+        ["just"]="just"
+        ["watchexec"]="watchexec"
+        ["cargo-audit"]="cargo-audit"
+        ["cargo-watch"]="cargo-watch"
+        ["cargo-nextest"]="cargo-nextest"
+        ["bacon"]="bacon"
+        ["sqlx-cli"]="sqlx"
+        ["fnm"]="fnm"
+        ["jq"]="jq"
+        ["pass"]="pass"
+        ["gnupg"]="gpg"
+    )
+
+    for pkg in "${!NIX_PACKAGES[@]}"; do
+        bin_name="${NIX_PACKAGES[$pkg]}"
+        smart_nix_install "$pkg" "$bin_name"
     done
 
     echo ""
@@ -136,14 +257,19 @@ if [ "$PKG_MGR" = "nix" ]; then
 
     echo ""
     echo "--- Beads (AI память) ---"
-    # beads нужно через cargo, но в nix-shell
     if ! command -v bd &>/dev/null; then
         log_install "beads"
-        if nix-shell -p cargo rustc gcc openssl pkg-config --run "cargo install beads" 2>/dev/null; then
-            log_ok "beads установлен"
-            INSTALLED+=("beads")
+        # Используем cargo напрямую если есть, иначе через nix-shell
+        if command -v cargo &>/dev/null; then
+            if cargo install beads 2>/dev/null; then
+                log_ok "beads установлен"
+                INSTALLED+=("beads")
+            else
+                log_error "Не удалось установить beads"
+                FAILED+=("beads")
+            fi
         else
-            log_error "Не удалось установить beads"
+            log_info "cargo не найден, пропускаю beads"
             FAILED+=("beads")
         fi
     else
@@ -435,5 +561,8 @@ echo -e "${YELLOW}Актуальные:${NC} ${#SKIPPED[@]}"
 echo -e "${RED}Ошибок:${NC} ${#FAILED[@]}"
 echo ""
 echo "Отчёт сохранён: $REPORT_FILE"
+if [ -f "$CACHE_FILE" ]; then
+    echo "Кэш маппингов: $CACHE_FILE"
+fi
 echo ""
 echo "Перезапусти терминал или выполни: source $SHELL_RC"
