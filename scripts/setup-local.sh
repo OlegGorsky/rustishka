@@ -194,6 +194,7 @@ if [ "$PKG_MGR" = "nix" ]; then
 
     # Список пакетов: название -> бинарник (если отличается)
     declare -A NIX_PACKAGES=(
+        # CLI замены
         ["eza"]="eza"
         ["bat"]="bat"
         ["fd"]="fd"
@@ -201,20 +202,33 @@ if [ "$PKG_MGR" = "nix" ]; then
         ["zoxide"]="zoxide"
         ["dust"]="dust"
         ["delta"]="delta"
+        ["btop"]="btop"
+        # Для разработки
         ["tokei"]="tokei"
         ["hyperfine"]="hyperfine"
         ["gitui"]="gitui"
         ["starship"]="starship"
-        ["xsv"]="xsv"
         ["just"]="just"
         ["watchexec"]="watchexec"
+        # Для данных
+        ["jq"]="jq"
+        ["yq"]="yq"
+        ["xsv"]="xsv"
+        # Cargo расширения
         ["cargo-audit"]="cargo-audit"
         ["cargo-watch"]="cargo-watch"
         ["cargo-nextest"]="cargo-nextest"
+        ["cargo-tarpaulin"]="cargo-tarpaulin"
+        ["cargo-edit"]="cargo"
+        ["cargo-outdated"]="cargo-outdated"
         ["bacon"]="bacon"
         ["sqlx-cli"]="sqlx"
+        ["tokio-console"]="tokio-console"
+        # Бэкапы
+        ["rustic"]="rustic"
+        # Node.js
         ["fnm"]="fnm"
-        ["jq"]="jq"
+        # Секреты
         ["pass"]="pass"
         ["gnupg"]="gpg"
     )
@@ -256,10 +270,11 @@ if [ "$PKG_MGR" = "nix" ]; then
     fi
 
     echo ""
-    echo "--- Beads (AI память) ---"
+    echo "--- AI инструменты ---"
+
+    # Beads
     if ! command -v bd &>/dev/null; then
         log_install "beads"
-        # Используем cargo напрямую если есть, иначе через nix-shell
         if command -v cargo &>/dev/null; then
             if cargo install beads 2>/dev/null; then
                 log_ok "beads установлен"
@@ -275,6 +290,22 @@ if [ "$PKG_MGR" = "nix" ]; then
     else
         log_skip "beads"
         SKIPPED+=("beads")
+    fi
+
+    # Specify CLI (spec-driven development)
+    if ! command -v specify &>/dev/null; then
+        log_install "specify-cli"
+        if command -v uv &>/dev/null; then
+            uv tool install specify-cli --from git+https://github.com/github/spec-kit.git 2>/dev/null && log_ok "specify-cli установлен" && INSTALLED+=("specify-cli") || FAILED+=("specify-cli")
+        elif command -v pipx &>/dev/null; then
+            pipx install git+https://github.com/github/spec-kit.git 2>/dev/null && log_ok "specify-cli установлен" && INSTALLED+=("specify-cli") || FAILED+=("specify-cli")
+        else
+            log_info "Нужен uv или pipx для specify-cli"
+            FAILED+=("specify-cli")
+        fi
+    else
+        log_skip "specify-cli"
+        SKIPPED+=("specify-cli")
     fi
 
 # ===========================================
@@ -414,6 +445,13 @@ else
     cargo_install_or_update "xsv" "xsv"
     cargo_install_or_update "just" "just"
     cargo_install_or_update "watchexec-cli" "watchexec"
+    cargo_install_or_update "rustic-rs" "rustic"
+
+    echo ""
+    # --- Системные (btop, yq) ---
+    echo "--- Системные утилиты ---"
+    check_and_install "btop" "command -v btop" "pkg_install btop"
+    check_and_install "yq" "command -v yq" "pkg_install yq"
 
     echo ""
     # --- Cargo расширения ---
@@ -422,13 +460,39 @@ else
     cargo_install_or_update "cargo-audit" "cargo-audit"
     cargo_install_or_update "cargo-watch" "cargo-watch"
     cargo_install_or_update "cargo-nextest" "cargo-nextest"
+    cargo_install_or_update "cargo-tarpaulin" "cargo-tarpaulin"
+    cargo_install_or_update "cargo-edit" "cargo-add"
+    cargo_install_or_update "cargo-outdated" "cargo-outdated"
+    cargo_install_or_update "tokio-console" "tokio-console"
     cargo_install_or_update "bacon" "bacon"
     cargo_install_or_update "sqlx-cli" "sqlx"
 
     echo ""
-    # --- Beads ---
-    echo "--- Beads (AI память) ---"
+    # --- AI инструменты ---
+    echo "--- AI инструменты ---"
     cargo_install_or_update "beads" "bd"
+
+    # Specify CLI (spec-driven development)
+    if ! command -v specify &>/dev/null; then
+        log_install "specify-cli"
+        if command -v uv &>/dev/null; then
+            uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
+        elif command -v pipx &>/dev/null; then
+            pipx install git+https://github.com/github/spec-kit.git
+        elif command -v pip &>/dev/null; then
+            pip install --user git+https://github.com/github/spec-kit.git
+        else
+            log_error "Нужен uv, pipx или pip для установки specify-cli"
+            FAILED+=("specify-cli")
+        fi
+        if command -v specify &>/dev/null; then
+            log_ok "specify-cli установлен"
+            INSTALLED+=("specify-cli")
+        fi
+    else
+        log_skip "specify-cli"
+        SKIPPED+=("specify-cli")
+    fi
 
     echo ""
     # --- fnm + Node.js + pnpm ---

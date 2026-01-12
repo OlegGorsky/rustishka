@@ -22,17 +22,24 @@ curl -sSL https://raw.githubusercontent.com/OlegGorsky/rustishka/main/scripts/se
 | **zoxide** | Умный cd с историей | `cd` |
 | **dust** | Визуализация размера директорий | `du` |
 | **delta** | Красивый diff для git | `diff` |
+| **btop** | Красивый мониторинг системы | `top` |
 
-#### Rust инструменты
+#### Для разработки
 | Утилита | Описание |
 |---------|----------|
 | **tokei** | Подсчёт строк кода |
 | **hyperfine** | Бенчмарки командной строки |
 | **gitui** | TUI для git |
 | **starship** | Кастомизируемый prompt |
-| **xsv** | Работа с CSV |
 | **just** | Современная альтернатива make |
 | **watchexec** | Выполнение команд при изменении файлов |
+
+#### Для работы с данными
+| Утилита | Описание |
+|---------|----------|
+| **jq** | Работа с JSON |
+| **yq** | Работа с YAML |
+| **xsv** | Работа с CSV |
 
 #### Cargo расширения
 | Утилита | Описание |
@@ -40,8 +47,12 @@ curl -sSL https://raw.githubusercontent.com/OlegGorsky/rustishka/main/scripts/se
 | **cargo-audit** | Проверка уязвимостей в зависимостях |
 | **cargo-watch** | Автоперезапуск при изменениях |
 | **cargo-nextest** | Быстрый test runner |
+| **cargo-tarpaulin** | Покрытие тестами |
+| **cargo-edit** | cargo add/rm/upgrade |
+| **cargo-outdated** | Проверка обновлений зависимостей |
+| **tokio-console** | Дебаг async задач |
 | **bacon** | Фоновый cargo check |
-| **sqlx-cli** | CLI для SQLx |
+| **sqlx-cli** | CLI для SQLx миграций |
 
 #### Node.js
 | Утилита | Описание |
@@ -50,11 +61,16 @@ curl -sSL https://raw.githubusercontent.com/OlegGorsky/rustishka/main/scripts/se
 | **Node.js LTS** | Последняя LTS версия |
 | **pnpm** | Быстрый пакетный менеджер |
 
-#### Другое
+#### AI инструменты
 | Утилита | Описание |
 |---------|----------|
 | **beads** | AI память для проектов |
-| **jq** | Работа с JSON |
+| **specify-cli** | Spec-driven development (GitHub Spec Kit) |
+
+#### Бэкапы и безопасность
+| Утилита | Описание |
+|---------|----------|
+| **rustic** | Быстрые бэкапы (Rust) |
 | **pass** | Менеджер паролей |
 | **gnupg** | Шифрование |
 
