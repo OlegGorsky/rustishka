@@ -72,20 +72,121 @@ echo "   Установка локального окружения"
 echo "=========================================="
 echo ""
 
+# --- Определение ОС и пакетного менеджера ---
+detect_os() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        OS="macos"
+        PKG_MGR="brew"
+    elif command -v apt &>/dev/null; then
+        OS="debian"
+        PKG_MGR="apt"
+    elif command -v dnf &>/dev/null; then
+        OS="fedora"
+        PKG_MGR="dnf"
+    elif command -v pacman &>/dev/null; then
+        OS="arch"
+        PKG_MGR="pacman"
+    elif command -v nix-env &>/dev/null; then
+        OS="nixos"
+        PKG_MGR="nix"
+    else
+        OS="unknown"
+        PKG_MGR="unknown"
+    fi
+}
+
+detect_os
+echo "ОС: $OS, Пакетный менеджер: $PKG_MGR"
+echo ""
+
 # --- Системные зависимости ---
 echo "--- Системные пакеты ---"
-sudo apt update -qq
 
-check_and_install "curl" "command -v curl" "sudo apt install -y curl"
-check_and_install "git" "command -v git" "sudo apt install -y git"
-check_and_install "build-essential" "dpkg -s build-essential" "sudo apt install -y build-essential"
-check_and_install "pkg-config" "command -v pkg-config" "sudo apt install -y pkg-config"
-check_and_install "libssl-dev" "dpkg -s libssl-dev" "sudo apt install -y libssl-dev"
-check_and_install "gnupg" "command -v gpg" "sudo apt install -y gnupg"
-check_and_install "pass" "command -v pass" "sudo apt install -y pass"
-check_and_install "btop" "command -v btop" "sudo apt install -y btop"
-check_and_install "jq" "command -v jq" "sudo apt install -y jq"
-check_and_install "yq" "command -v yq" "sudo apt install -y yq"
+pkg_install() {
+    local pkg=$1
+    local pkg_macos=${2:-$1}
+    local pkg_nix=${3:-$1}
+
+    case $PKG_MGR in
+        brew)
+            brew install "$pkg_macos"
+            ;;
+        apt)
+            sudo apt install -y "$pkg"
+            ;;
+        dnf)
+            sudo dnf install -y "$pkg"
+            ;;
+        pacman)
+            sudo pacman -S --noconfirm "$pkg"
+            ;;
+        nix)
+            nix-env -iA nixpkgs."$pkg_nix"
+            ;;
+        *)
+            log_error "Неизвестный пакетный менеджер"
+            return 1
+            ;;
+    esac
+}
+
+# Обновление индекса пакетов
+case $PKG_MGR in
+    brew)
+        brew update
+        ;;
+    apt)
+        sudo apt update -qq
+        ;;
+    dnf)
+        sudo dnf check-update -q || true
+        ;;
+    pacman)
+        sudo pacman -Sy
+        ;;
+    nix)
+        nix-channel --update
+        ;;
+esac
+
+check_and_install "curl" "command -v curl" "pkg_install curl"
+check_and_install "git" "command -v git" "pkg_install git"
+check_and_install "pkg-config" "command -v pkg-config" "pkg_install pkg-config"
+check_and_install "gnupg" "command -v gpg" "pkg_install gnupg gnupg gnupg"
+check_and_install "pass" "command -v pass" "pkg_install pass pass pass"
+check_and_install "btop" "command -v btop" "pkg_install btop btop btop"
+check_and_install "jq" "command -v jq" "pkg_install jq jq jq"
+
+# build-essential / dev tools (зависит от ОС)
+case $PKG_MGR in
+    brew)
+        # macOS: Xcode CLI tools
+        if ! xcode-select -p &>/dev/null; then
+            log_install "Xcode CLI tools"
+            xcode-select --install
+            INSTALLED+=("xcode-cli")
+        else
+            log_skip "Xcode CLI tools"
+            SKIPPED+=("xcode-cli")
+        fi
+        ;;
+    apt)
+        check_and_install "build-essential" "dpkg -s build-essential" "sudo apt install -y build-essential"
+        check_and_install "libssl-dev" "dpkg -s libssl-dev" "sudo apt install -y libssl-dev"
+        ;;
+    dnf)
+        check_and_install "gcc" "command -v gcc" "sudo dnf groupinstall -y 'Development Tools'"
+        check_and_install "openssl-devel" "rpm -q openssl-devel" "sudo dnf install -y openssl-devel"
+        ;;
+    pacman)
+        check_and_install "base-devel" "pacman -Q base-devel" "sudo pacman -S --noconfirm base-devel"
+        check_and_install "openssl" "pacman -Q openssl" "sudo pacman -S --noconfirm openssl"
+        ;;
+    nix)
+        log_skip "NixOS: dev tools управляются через configuration.nix"
+        SKIPPED+=("dev-tools")
+        ;;
+esac
 
 echo ""
 # --- Rust ---
@@ -218,10 +319,23 @@ echo ""
 # --- Настройка shell ---
 echo "--- Настройка shell ---"
 
-SHELL_RC="$HOME/.bashrc"
-if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
-    SHELL_RC="$HOME/.zshrc"
-fi
+# Определяем shell
+CURRENT_SHELL=$(basename "$SHELL")
+case $CURRENT_SHELL in
+    zsh)
+        SHELL_RC="$HOME/.zshrc"
+        SHELL_NAME="zsh"
+        ;;
+    fish)
+        SHELL_RC="$HOME/.config/fish/config.fish"
+        SHELL_NAME="fish"
+        mkdir -p "$HOME/.config/fish"
+        ;;
+    *)
+        SHELL_RC="$HOME/.bashrc"
+        SHELL_NAME="bash"
+        ;;
+esac
 
 add_to_rc() {
     if ! grep -q "$1" "$SHELL_RC" 2>/dev/null; then
@@ -230,16 +344,28 @@ add_to_rc() {
     fi
 }
 
-echo "Добавляю алиасы и инициализацию в $SHELL_RC..."
+echo "Shell: $SHELL_NAME, конфиг: $SHELL_RC"
 
-add_to_rc 'alias ls="eza --icons"'
-add_to_rc 'alias cat="bat"'
-add_to_rc 'alias find="fd"'
-add_to_rc 'alias grep="rg"'
-add_to_rc 'eval "$(zoxide init bash)"'
-add_to_rc 'eval "$(starship init bash)"'
-add_to_rc 'export PATH="$HOME/.cargo/bin:$PATH"'
-add_to_rc 'eval "$(fnm env)"'
+# Алиасы (fish использует другой синтаксис)
+if [ "$SHELL_NAME" = "fish" ]; then
+    add_to_rc 'alias ls="eza --icons"'
+    add_to_rc 'alias cat="bat"'
+    add_to_rc 'alias find="fd"'
+    add_to_rc 'alias grep="rg"'
+    add_to_rc 'zoxide init fish | source'
+    add_to_rc 'starship init fish | source'
+    add_to_rc 'set -gx PATH $HOME/.cargo/bin $PATH'
+    add_to_rc 'fnm env | source'
+else
+    add_to_rc 'alias ls="eza --icons"'
+    add_to_rc 'alias cat="bat"'
+    add_to_rc 'alias find="fd"'
+    add_to_rc 'alias grep="rg"'
+    add_to_rc 'eval "$(zoxide init '"$SHELL_NAME"')"'
+    add_to_rc 'eval "$(starship init '"$SHELL_NAME"')"'
+    add_to_rc 'export PATH="$HOME/.cargo/bin:$PATH"'
+    add_to_rc 'eval "$(fnm env)"'
+fi
 
 log_ok "Shell настроен"
 
