@@ -27,16 +27,47 @@ read -p "SSH порт [22]: " SERVER_PORT
 SERVER_PORT=${SERVER_PORT:-22}
 
 echo ""
+echo "Метод подключения:"
+echo "  1) SSH-ключ (рекомендуется)"
+echo "  2) Пароль"
+read -p "Выбор [1]: " AUTH_METHOD
+AUTH_METHOD=${AUTH_METHOD:-1}
+
+if [ "$AUTH_METHOD" = "2" ]; then
+    read -s -p "Пароль: " SERVER_PASSWORD
+    echo ""
+
+    # Проверяем наличие sshpass
+    if ! command -v sshpass &>/dev/null; then
+        log_info "Устанавливаю sshpass..."
+        if command -v apt &>/dev/null; then
+            sudo apt install -y sshpass
+        elif command -v brew &>/dev/null; then
+            brew install hudochenkov/sshpass/sshpass
+        elif command -v nix-env &>/dev/null; then
+            nix-env -iA nixpkgs.sshpass
+        else
+            log_error "Установи sshpass вручную или используй SSH-ключ"
+            exit 1
+        fi
+    fi
+fi
+
+echo ""
 log_info "Подключаюсь к $SERVER_USER@$SERVER_IP:$SERVER_PORT..."
 
 # --- Функция выполнения на сервере ---
 run_remote() {
-    ssh -p "$SERVER_PORT" "$SERVER_USER@$SERVER_IP" "$1"
+    if [ "$AUTH_METHOD" = "2" ]; then
+        sshpass -p "$SERVER_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$SERVER_PORT" "$SERVER_USER@$SERVER_IP" "$1"
+    else
+        ssh -o StrictHostKeyChecking=no -p "$SERVER_PORT" "$SERVER_USER@$SERVER_IP" "$1"
+    fi
 }
 
 # --- Проверка подключения ---
-if ! run_remote "echo 'OK'" &>/dev/null; then
-    log_error "Не удалось подключиться. Проверь SSH-ключ."
+if ! run_remote "echo 'OK'" 2>/dev/null; then
+    log_error "Не удалось подключиться. Проверь данные."
     exit 1
 fi
 log_ok "Подключение успешно"
